@@ -7,10 +7,10 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from time import perf_counter
+from time import perf_counter, sleep
 from typing import Any
 
-from sip_bench.adapters import MockBenchAdapter, SkillsBenchAdapter, TauBenchAdapter
+from sip_bench.adapters import EvoAgentBenchAdapter, MockBenchAdapter, SkillsBenchAdapter, TauBenchAdapter
 from sip_bench.metrics import write_jsonl
 
 
@@ -135,16 +135,42 @@ def hydrate_skillsbench_checkout(
 
     before_patterns = _read_sparse_patterns(repo_root=repo_root, git_bin=git_bin)
     command: list[str] = []
+    hydrate_attempts: list[dict[str, Any]] = []
+    max_attempts = 6
     if patterns:
         command = [git_bin, "-C", str(repo_root), "sparse-checkout", "add", *patterns]
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        completed: subprocess.CompletedProcess[str] | None = None
+        for attempt_number in range(1, max_attempts + 1):
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            stderr_text = completed.stderr or ""
+            lock_conflict = "sparse-checkout.lock" in stderr_text and "Unable to create" in stderr_text
+            hydrate_attempts.append(
+                {
+                    "attempt_number": attempt_number,
+                    "returncode": completed.returncode,
+                    "lock_conflict": lock_conflict,
+                    "stderr": stderr_text,
+                }
+            )
+            if completed.returncode == 0 or not lock_conflict or attempt_number == max_attempts:
+                break
+            sleep(0.5 * attempt_number)
+        assert completed is not None
     else:
         completed = subprocess.CompletedProcess(args=[git_bin, "-C", str(repo_root), "sparse-checkout", "list"], returncode=0, stdout="", stderr="")
+        hydrate_attempts.append(
+            {
+                "attempt_number": 1,
+                "returncode": completed.returncode,
+                "lock_conflict": False,
+                "stderr": completed.stderr,
+            }
+        )
 
     after_patterns = _read_sparse_patterns(repo_root=repo_root, git_bin=git_bin)
     report = {
@@ -162,6 +188,7 @@ def hydrate_skillsbench_checkout(
         "returncode": completed.returncode,
         "stdout": completed.stdout,
         "stderr": completed.stderr,
+        "hydrate_attempts": hydrate_attempts,
         "before_patterns": before_patterns,
         "after_patterns": after_patterns,
         "hydrated_paths": patterns,
@@ -722,3 +749,38 @@ def _read_sparse_patterns(*, repo_root: str | Path, git_bin: str = "git") -> lis
     if completed.returncode != 0:
         return []
     return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+
+
+def import_evoagentbench_results(
+    *,
+    source: str | Path,
+    out: str | Path,
+    domain: str,
+    benchmark_split: str,
+    phase: str,
+    seed: int,
+    path_type: str,
+    model_name: str,
+    agent_name: str,
+    agent_version: str,
+    benchmark_version: str = "v1.0",
+    job_name: str | None = None,
+    task_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    adapter = EvoAgentBenchAdapter()
+    runs = adapter.parse_result_file(
+        source,
+        domain=domain,
+        benchmark_split=benchmark_split,
+        phase=phase,
+        seed=seed,
+        path_type=path_type,
+        model_name=model_name,
+        agent_name=agent_name,
+        agent_version=agent_version,
+        benchmark_version=benchmark_version,
+        job_name=job_name,
+        task_ids=task_ids,
+    )
+    write_jsonl(out, runs)
+    return runs

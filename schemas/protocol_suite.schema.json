@@ -27,7 +27,8 @@
       "enum": [
         "skillsbench",
         "tau-bench",
-        "mock-bench"
+        "mock-bench",
+        "evoagentbench"
       ]
     },
     "repo_root": {
@@ -69,6 +70,18 @@
           "minLength": 1
         },
         "python_bin": {
+          "type": "string",
+          "minLength": 1
+        },
+        "domain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "config_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "results_dir": {
           "type": "string",
           "minLength": 1
         },
@@ -283,6 +296,18 @@
             }
           },
           "python_bin": {
+            "type": "string",
+            "minLength": 1
+          },
+          "domain": {
+            "type": "string",
+            "minLength": 1
+          },
+          "config_path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "results_dir": {
             "type": "string",
             "minLength": 1
           },

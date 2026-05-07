@@ -31,12 +31,17 @@ Changes in these areas can silently invalidate previously documented results or 
 Recommended baseline:
 
 ```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e .
 python3 scripts/run_release_checks.py
 ```
 
 Useful additional checks:
 
 ```bash
+make test
+make plan-matrix
 python3 scripts/run_release_checks.py --skip-tests
 python3 scripts/aggregate_metrics.py --runs results/dryrun/sample_runs.jsonl --out /tmp/sip_summary.jsonl
 python3 scripts/run_eval.py import-skillsbench-job --job-dir tests/fixtures/skillsbench_harbor_job_sample --out /tmp/skillsbench_job_runs.jsonl --benchmark-split smoke --phase T0 --path-type oracle --seed 21 --registry tests/fixtures/skillsbench_registry_sample.json --agent-version fixture-import --benchmark-version skillsbench-harbor-fixture
@@ -124,8 +129,8 @@ SIP-Bench is benchmark-agnostic by design, so new benchmark support should enter
 1. add example protocol suite config under `protocol/`.
 2. add/extend smoke fixtures under `tests/fixtures/`.
 3. update docs:
-   - `docs/support_matrix_v0_1.md`
-   - `docs/release_manifest.md`
+   - `docs/README.md`
+   - `docs/technical_design.md`
    - this contributing checklist.
 4. validate plan-to-path consistency with:
    - `python3 scripts/check_plan_matrix.py --config protocol/<suite>.json --strict`
@@ -140,8 +145,15 @@ SIP-Bench is benchmark-agnostic by design, so new benchmark support should enter
    `python3 scripts/run_release_checks.py` (with fixture import) before opening the PR.
 3. include the command block in the PR description so reviewers can replay exactly.
 
-## New Benchmark Onboarding
+## Documentation Surface
 
-For a concrete end-to-end checklist with examples, use:
+Keep new contributor-facing material inside the active public surface whenever possible:
 
-- `docs/new_benchmark_onboarding_checklist.md`
+1. `README.md`
+2. `docs/README.md`
+3. `docs/technical_design.md`
+4. `tests/README.md`
+5. `scripts/README.md`
+
+Historical notes that are no longer part of the main project story should stay out of the primary repository surface.
+If the public repository surface is intentionally excluding a class of local notes or experiment debris, prefer keeping those files untracked rather than re-introducing them as primary project docs.

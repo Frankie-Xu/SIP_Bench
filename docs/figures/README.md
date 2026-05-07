@@ -2,9 +2,9 @@
 
 This directory is reserved for repo-hosted visual assets used by:
 
-1. `docs/results_gallery_post_v0_1.md`
+1. `docs/README.md`
 2. `README.md`
-3. future post-`v0.1.0` experiment notes
+3. retained result notes and artifact summaries
 
 Each figure includes a stable filename, a one-line caption, and a reproducible source command.
 
@@ -42,7 +42,7 @@ Recommended generation pipeline:
 python3 scripts/build_results_gallery_artifacts.py --summary results/dryrun/summary.jsonl --out-dir docs/figures --table-dir docs/results_table_data
 ```
 
-2. `attempt_provenance.svg` and `host_auth_progress.svg` are currently maintained as tracked SVGs produced from `results/protocol_runs/*` narratives and listed in `docs/results_gallery_post_v0_1.md`.
+2. `attempt_provenance.svg` and `host_auth_progress.svg` are retained tracked SVGs produced from `results/protocol_runs/*` narratives.
 
 Every checked-in figure should have:
 

@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sip-bench"
+version = "0.1.0"
+description = "Protocol infrastructure for longitudinal evaluation of self-improving agents."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Yuchong-W", email = "yuchong-23@mails.tsinghua.edu.cn" }
+]
+keywords = ["agents", "benchmarking", "evaluation", "protocols", "self-improvement"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Software Development :: Testing",
+]
+dependencies = [
+  "jsonschema>=4.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Yuchong-W/Protocol_Bench"
+Repository = "https://github.com/Yuchong-W/Protocol_Bench"
+Issues = "https://github.com/Yuchong-W/Protocol_Bench/issues"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import os
 import shlex
 from pathlib import Path
@@ -12,9 +13,7 @@ def build_codex_auth_setup_command(
     api_key_env_var: str = "OPENAI_API_KEY",
 ) -> str:
     source_path = Path(auth_source).expanduser() if auth_source else Path.home() / ".codex" / "auth.json"
-    escaped_source = shlex.quote(str(source_path))
-    python_source = repr(str(source_path))
-    return (
+    prefix = (
         "mkdir -p /tmp/codex-secrets\n"
         f'if [ -n "${{{api_key_env_var}}}" ]; then\n'
         "cat >/tmp/codex-secrets/auth.json <<EOF\n"
@@ -22,26 +21,42 @@ def build_codex_auth_setup_command(
         f'  "{api_key_env_var}": "${{{api_key_env_var}}}"\n'
         "}\n"
         "EOF\n"
-        f"elif [ -f {escaped_source} ]; then\n"
-        "python3 - <<'PY'\n"
-        "import json\n"
-        "from pathlib import Path\n"
-        f"src = Path({python_source})\n"
-        "dst = Path('/tmp/codex-secrets/auth.json')\n"
-        "data = json.loads(src.read_text(encoding='utf-8'))\n"
-        "if not data.get('OPENAI_API_KEY'):\n"
-        "    data.pop('OPENAI_API_KEY', None)\n"
-        "dst.write_text(json.dumps(data), encoding='utf-8')\n"
-        "PY\n"
-        "else\n"
-        "cat >/tmp/codex-secrets/auth.json <<EOF\n"
-        "{\n"
-        f'  "{api_key_env_var}": "${{{api_key_env_var}}}"\n'
-        "}\n"
-        "EOF\n"
-        "fi\n"
-        'ln -sf /tmp/codex-secrets/auth.json "$CODEX_HOME/auth.json"'
     )
+    if source_path.exists():
+        embedded_auth_payload = base64.b64encode(source_path.read_bytes()).decode("ascii")
+        middle = (
+            "else\n"
+            "python3 - <<'PY'\n"
+            "import base64\n"
+            "from pathlib import Path\n"
+            f"payload = {embedded_auth_payload!r}\n"
+            "Path('/tmp/codex-secrets/auth.json').write_bytes(base64.b64decode(payload))\n"
+            "PY\n"
+            "fi\n"
+        )
+    else:
+        middle = (
+            f"elif [ -f {shlex.quote(str(source_path))} ]; then\n"
+            "python3 - <<'PY'\n"
+            "import json\n"
+            "from pathlib import Path\n"
+            f"src = Path({repr(str(source_path))})\n"
+            "dst = Path('/tmp/codex-secrets/auth.json')\n"
+            "data = json.loads(src.read_text(encoding='utf-8'))\n"
+            "if not data.get('OPENAI_API_KEY'):\n"
+            "    data.pop('OPENAI_API_KEY', None)\n"
+            "dst.write_text(json.dumps(data), encoding='utf-8')\n"
+            "PY\n"
+            "else\n"
+            "cat >/tmp/codex-secrets/auth.json <<EOF\n"
+            "{\n"
+            f'  "{api_key_env_var}": "${{{api_key_env_var}}}"\n'
+            "}\n"
+            "EOF\n"
+            "fi\n"
+        )
+    suffix = 'ln -sf /tmp/codex-secrets/auth.json "$CODEX_HOME/auth.json"'
+    return prefix + middle + suffix
 
 
 def build_codex_agent_env(

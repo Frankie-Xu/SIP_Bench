@@ -8,12 +8,13 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from sip_bench.adapters import MockBenchAdapter, SkillsBenchAdapter, TauBenchAdapter
+from sip_bench.adapters import EvoAgentBenchAdapter, MockBenchAdapter, SkillsBenchAdapter, TauBenchAdapter
 from sip_bench.adapters.base import SplitManifest, TaskDescriptor
 from sip_bench.metrics import aggregate_runs, load_jsonl, write_jsonl
 from sip_bench.runner import (
     execute_command_plan,
     hydrate_skillsbench_checkout,
+    import_evoagentbench_results,
     import_skillsbench_job,
     import_mock_results,
     import_tau_results,
@@ -136,6 +137,35 @@ INFRA_EXCEPTION_MESSAGE_SET = {entry.lower() for entry in INFRA_EXCEPTION_MESSAG
 
 def _normalize_text(value: Any) -> str:
     return str(value or "").strip().lower()
+
+
+def _iter_skillsbench_retry_texts(record: dict[str, Any]) -> list[tuple[str, str]]:
+    metadata = record.get("metadata") or {}
+    texts: list[tuple[str, str]] = []
+
+    exception_message = str(metadata.get("exception_message") or "").strip()
+    if exception_message:
+        texts.append(("exception_message", exception_message))
+
+    source_file_value = metadata.get("source_file")
+    if not source_file_value:
+        return texts
+
+    trial_root = Path(str(source_file_value)).parent
+    for rel_path in ("agent/setup/stdout.txt", "agent/setup/stderr.txt"):
+        log_path = trial_root / rel_path
+        if not log_path.is_file():
+            continue
+        try:
+            log_text = log_path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        log_text = log_text.strip()
+        if not log_text:
+            continue
+        texts.append((rel_path, log_text[-8000:]))
+
+    return texts
 
 
 def _infer_failure_family(*, exception_type: str | None = None, exception_message: str | None = None) -> str | None:
@@ -625,6 +655,111 @@ def run_mock_bench_suite(
     return report
 
 
+def run_evoagentbench_suite(
+    *,
+    config_path: str | Path,
+    out_root: str | Path | None = None,
+    execute_mode: str = "subprocess",
+    aggregate: bool = True,
+    selected_run_names: set[str] | None = None,
+) -> dict[str, Any]:
+    config_file = Path(config_path).resolve()
+    config = load_protocol_suite_config(config_file)
+    if config["benchmark_name"] != "evoagentbench":
+        raise ValueError("run_evoagentbench_suite expects an evoagentbench config")
+
+    base_dir = config_file.parent
+    repo_root = _resolve_path(base_dir, config["repo_root"])
+    suite_root = _resolve_path(base_dir, out_root) if out_root else _resolve_path(base_dir, config["out_root"])
+    suite_root.mkdir(parents=True, exist_ok=True)
+
+    execution_defaults = config["execution"]
+    selected_run_specs, selected_names = _select_suite_run_specs(
+        config["runs"],
+        selected_run_names,
+    )
+    existing_run_reports = _load_existing_suite_run_reports(suite_root / "suite_report.json")
+    unselected_names = {
+        str(run_spec["run_name"]) for run_spec in config["runs"] if str(run_spec["run_name"]) not in selected_names
+    }
+    if unselected_names:
+        missing_reports = sorted(name for name in unselected_names if name not in existing_run_reports)
+        if missing_reports:
+            missing_text = ", ".join(missing_reports)
+            raise ValueError(
+                "Cannot update only part of the suite without reusable prior run reports. "
+                f"Missing existing runs in {suite_root / 'suite_report.json'}: {missing_text}. "
+                "Run the full suite first or use a different out_root for the subset run."
+            )
+
+    suite_env_overrides = _resolve_suite_env(
+        base_dir=base_dir,
+        repo_root=repo_root,
+        env_file_value=execution_defaults.get("env_file"),
+    )
+
+    combined_runs: list[dict[str, Any]] = []
+    run_reports_by_name = dict(existing_run_reports)
+    for run_spec in selected_run_specs:
+        run_report = _run_evoagentbench_spec(
+            suite_name=config["suite_name"],
+            base_dir=base_dir,
+            suite_root=suite_root,
+            repo_root=repo_root,
+            execution_defaults=execution_defaults,
+            run_spec=run_spec,
+            execute_mode=execute_mode,
+            env_overrides=suite_env_overrides,
+        )
+        run_reports_by_name[str(run_report["run_name"])] = run_report
+
+    run_reports: list[dict[str, Any]] = []
+    for run_spec in config["runs"]:
+        run_name = str(run_spec["run_name"])
+        run_report = run_reports_by_name.get(run_name)
+        if run_report is None:
+            continue
+        run_reports.append(run_report)
+        combined_runs.extend(load_jsonl(_resolve_suite_records_path(run_report, suite_root=suite_root, run_name=run_name)))
+
+    combined_runs_path = suite_root / "combined_runs.jsonl"
+    write_jsonl(combined_runs_path, combined_runs)
+    runs_validation = validate_data_file(
+        data_path=combined_runs_path,
+        schema_path=Path(__file__).resolve().parents[2] / "schemas" / "runs.schema.json",
+    )
+
+    summary_path = suite_root / "summary.jsonl"
+    summary_report = _aggregate_suite_records(
+        records=combined_runs,
+        out_path=summary_path,
+        aggregate=aggregate,
+    )
+    evidence_report = _classify_evidence(runs=run_reports, summary_report=summary_report)
+
+    report = {
+        "schema_version": SUITE_SCHEMA_VERSION,
+        "suite_name": config["suite_name"],
+        "benchmark_name": config["benchmark_name"],
+        "config_path": str(config_file),
+        "out_root": str(suite_root),
+        "execute_mode": execute_mode,
+        "run_count": len(run_reports),
+        "runs": run_reports,
+        "combined_runs_path": str(combined_runs_path),
+        "runs_validation": runs_validation,
+        "summary": summary_report,
+        "evidence": evidence_report,
+        "preflight": {
+            "schema_version": SUITE_SCHEMA_VERSION,
+            "action": "evoagentbench-env",
+            "env_override_keys": sorted(suite_env_overrides.keys()),
+        },
+    }
+    write_json(suite_root / "suite_report.json", report)
+    return report
+
+
 def build_skillsbench_explicit_plan(
     *,
     registry_path: str | Path,
@@ -831,6 +966,111 @@ def build_mock_bench_explicit_plan(
             "model": model,
             "python_bin": python_bin,
             "agent_import_path": agent_import_path,
+            "extra_args": extra_args or [],
+        },
+        "manifest": manifest.to_dict(),
+        "commands": commands,
+    }
+
+
+def build_evoagentbench_explicit_plan(
+    *,
+    repo_root: str | Path,
+    domain: str,
+    split_task_ids: dict[str, list[str]],
+    agent: str = "nanobot",
+    model: str | None = None,
+    python_bin: str = "python3",
+    config_path: str | None = None,
+    job_name: str | None = None,
+    extra_args: list[str] | None = None,
+) -> dict[str, Any]:
+    adapter = EvoAgentBenchAdapter()
+    manifest = SplitManifest(
+        replay=[
+            TaskDescriptor(
+                benchmark_name=adapter.benchmark_name,
+                task_id=task_id,
+                source_path=task_id,
+                title=task_id,
+                metadata={"domain": domain, "protocol_split": "replay"},
+            )
+            for task_id in split_task_ids.get("replay", [])
+        ],
+        adapt=[
+            TaskDescriptor(
+                benchmark_name=adapter.benchmark_name,
+                task_id=task_id,
+                source_path=task_id,
+                title=task_id,
+                metadata={"domain": domain, "protocol_split": "adapt"},
+            )
+            for task_id in split_task_ids.get("adapt", [])
+        ],
+        heldout=[
+            TaskDescriptor(
+                benchmark_name=adapter.benchmark_name,
+                task_id=task_id,
+                source_path=task_id,
+                title=task_id,
+                metadata={"domain": domain, "protocol_split": "heldout"},
+            )
+            for task_id in split_task_ids.get("heldout", [])
+        ],
+        drift=[
+            TaskDescriptor(
+                benchmark_name=adapter.benchmark_name,
+                task_id=task_id,
+                source_path=task_id,
+                title=task_id,
+                metadata={"domain": domain, "protocol_split": "drift"},
+            )
+            for task_id in split_task_ids.get("drift", [])
+        ],
+    )
+    adapter.validate_manifest(manifest)
+
+    split_to_evo = {
+        "replay": "train",
+        "adapt": "train",
+        "heldout": "test",
+        "drift": "test",
+    }
+    commands: dict[str, list[list[str]]] = {}
+    for split_name in DEFAULT_SPLITS:
+        tasks_for_split = getattr(manifest, split_name)
+        commands[split_name] = []
+        if not tasks_for_split:
+            continue
+        commands[split_name].append(
+            adapter.build_run_command(
+                repo_root=repo_root,
+                domain=domain,
+                split=split_to_evo[split_name],
+                task_ids=[task.task_id for task in tasks_for_split],
+                agent=agent,
+                model=model,
+                python_bin=python_bin,
+                config_path=config_path,
+                job_name=job_name,
+                extra_args=extra_args,
+            )
+        )
+
+    return {
+        "benchmark_name": adapter.benchmark_name,
+        "repo_root": str(repo_root),
+        "selection": {
+            "selection_mode": "explicit",
+            "domain": domain,
+            "task_ids": {split: split_task_ids.get(split, []) for split in DEFAULT_SPLITS},
+        },
+        "execution": {
+            "agent": agent,
+            "model": model,
+            "python_bin": python_bin,
+            "config_path": config_path,
+            "job_name": job_name,
             "extra_args": extra_args or [],
         },
         "manifest": manifest.to_dict(),
@@ -1373,6 +1613,117 @@ def _run_tau_spec(
     }
 
 
+def _run_evoagentbench_spec(
+    *,
+    suite_name: str,
+    base_dir: Path,
+    suite_root: Path,
+    repo_root: Path,
+    execution_defaults: dict[str, Any],
+    run_spec: dict[str, Any],
+    execute_mode: str,
+    env_overrides: dict[str, str],
+) -> dict[str, Any]:
+    run_name = run_spec["run_name"]
+    split_name = run_spec["benchmark_split"]
+    phase = run_spec["phase"]
+    path_type = run_spec.get("path_type", execution_defaults["path_type"])
+    seed = int(run_spec.get("seed", execution_defaults.get("seed", 0)))
+    domain = run_spec.get("domain", execution_defaults["domain"])
+    agent = run_spec.get("agent", execution_defaults["agent"])
+    model = run_spec.get("model", execution_defaults.get("model"))
+    python_bin = _resolve_command_value(base_dir, run_spec.get("python_bin", execution_defaults.get("python_bin", "python3")))
+    config_path_value = run_spec.get("config_path", execution_defaults.get("config_path"))
+    config_path = str(_resolve_path(base_dir, config_path_value)) if config_path_value else None
+    job_name = run_spec.get("job_name", f"{suite_name}-{run_name}")
+    results_dir_value = run_spec.get("results_dir", execution_defaults.get("results_dir"))
+    results_dir = _resolve_path(base_dir, results_dir_value) if results_dir_value else repo_root / "results"
+    agent_version = run_spec.get("agent_version", execution_defaults["agent_version"])
+    agent_name = run_spec.get("agent_name", agent)
+    model_name = run_spec.get("model_name", model or "unknown-model")
+    source_result_value = run_spec.get("source_result_file")
+    extra_args = [*execution_defaults.get("extra_args", []), *run_spec.get("extra_args", [])]
+
+    split_task_ids = {name: [] for name in DEFAULT_SPLITS}
+    split_task_ids[split_name] = [str(task_id) for task_id in run_spec["task_ids"]]
+
+    plan_path = suite_root / "plans" / f"{run_name}.json"
+    execution_path = suite_root / "execution" / f"{run_name}.json"
+    records_path = suite_root / "runs" / f"{run_name}.jsonl"
+
+    plan_payload = build_evoagentbench_explicit_plan(
+        repo_root=repo_root,
+        domain=domain,
+        split_task_ids=split_task_ids,
+        agent=agent,
+        model=model,
+        python_bin=python_bin,
+        config_path=config_path,
+        job_name=job_name,
+        extra_args=extra_args,
+    )
+    write_json(plan_path, plan_payload)
+
+    if source_result_value:
+        result_path = _resolve_path(base_dir, source_result_value)
+        execution_mode_value = "import-only"
+        execution_summary = None
+    else:
+        execution_report = execute_command_plan(
+            plan_source=plan_path,
+            out=execution_path,
+            split=split_name,
+            mode=execute_mode,
+            cwd=repo_root,
+            env_overrides=env_overrides,
+        )
+        result_path = results_dir / job_name
+        execution_mode_value = execute_mode
+        execution_summary = execution_report["summary"]
+
+    imported_runs = import_evoagentbench_results(
+        source=result_path,
+        out=records_path,
+        domain=domain,
+        benchmark_split=split_name,
+        phase=phase,
+        path_type=path_type,
+        model_name=model_name,
+        agent_name=agent_name,
+        agent_version=agent_version,
+        seed=seed,
+        benchmark_version=_resolve_git_or_default(repo_root, "evoagentbench-upstream"),
+        job_name=job_name,
+        task_ids=set(split_task_ids[split_name]),
+    )
+    records_validation = validate_data_file(
+        data_path=records_path,
+        schema_path=Path(__file__).resolve().parents[2] / "schemas" / "runs.schema.json",
+    )
+
+    return {
+        "run_name": run_name,
+        "phase": phase,
+        "benchmark_split": split_name,
+        "path_type": path_type,
+        "seed": seed,
+        "domain": domain,
+        "task_ids": list(split_task_ids[split_name]),
+        "plan_path": str(plan_path),
+        "execution_path": None if source_result_value else str(execution_path),
+        "records_path": str(records_path),
+        "result_path": str(result_path),
+        "job_name": job_name,
+        "env_override_keys": sorted(env_overrides.keys()),
+        "execution_mode": execution_mode_value,
+        "execution_summary": execution_summary,
+        "imported_records": len(imported_runs),
+        "success_count": sum(1 for record in imported_runs if record["success"]),
+        "failure_count": sum(1 for record in imported_runs if not record["success"]),
+        "records_validation": records_validation,
+    }
+
+
 def _run_mock_spec(
     *,
     suite_name: str,
@@ -1602,6 +1953,21 @@ def _validate_protocol_suite_semantics(config: dict[str, Any]) -> None:
             raise ValueError(f"Invalid mock-bench suite config, missing required fields: {missing}")
         if any("source_job_dir" in run_spec for run_spec in config["runs"]):
             raise ValueError("mock-bench suite runs do not support source_job_dir; use source_result_file")
+    elif benchmark_name == "evoagentbench":
+        missing = [
+            field
+            for field in (
+                "domain",
+                "agent",
+                "path_type",
+                "agent_version",
+            )
+            if not execution.get(field)
+        ]
+        if missing:
+            raise ValueError(f"Invalid evoagentbench suite config, missing required fields: {missing}")
+        if any("source_job_dir" in run_spec for run_spec in config["runs"]):
+            raise ValueError("evoagentbench suite runs do not support source_job_dir; use source_result_file")
     else:
         raise ValueError(f"Unsupported benchmark_name in protocol suite config: {benchmark_name}")
 
@@ -1614,7 +1980,7 @@ def _normalize_protocol_suite_config(config: dict[str, Any]) -> dict[str, Any]:
             run_spec["task_ids"] = [str(task_id) for task_id in run_spec["task_ids"]]
         elif benchmark_name == "tau-bench":
             run_spec["task_ids"] = [int(task_id) for task_id in run_spec["task_ids"]]
-        elif benchmark_name == "mock-bench":
+        elif benchmark_name in {"mock-bench", "evoagentbench"}:
             run_spec["task_ids"] = [str(task_id) for task_id in run_spec["task_ids"]]
     return normalized
 
@@ -1818,15 +2184,19 @@ def _plan_skillsbench_retry(
     for record in imported_runs:
         metadata = record.get("metadata") or {}
         exception_type = str(metadata.get("exception_type") or "")
-        exception_message = str(metadata.get("exception_message") or "")
         matched_reason: str | None = None
+        matched_source: str | None = None
         if exception_type and exception_type in exception_types:
             matched_reason = f"exception_type:{exception_type}"
-        if matched_reason is None and exception_message and message_substrings:
-            normalized_message = exception_message.lower()
-            for needle in message_substrings:
-                if needle and needle in normalized_message:
-                    matched_reason = f"exception_message:{needle}"
+        if matched_reason is None and message_substrings:
+            for text_source, text_value in _iter_skillsbench_retry_texts(record):
+                normalized_message = text_value.lower()
+                for needle in message_substrings:
+                    if needle and needle in normalized_message:
+                        matched_reason = f"{text_source}:{needle}"
+                        matched_source = text_source
+                        break
+                if matched_reason is not None:
                     break
         if matched_reason is None:
             continue
@@ -1837,6 +2207,7 @@ def _plan_skillsbench_retry(
                 "task_id": record.get("task_id"),
                 "exception_type": exception_type or None,
                 "reason": matched_reason,
+                "source": matched_source,
             }
         )
     if matched_failures:
@@ -1913,6 +2284,33 @@ def _normalize_shell_scripts(task_root: Path) -> list[str]:
     return patched_files
 
 
+def _build_apt_retry_install_snippet(*, packages: list[str]) -> str:
+    package_lines = "".join(f"            {package} \\\n" for package in packages)
+    return (
+        "RUN set -eux; \\\n"
+        "    for attempt in 1 2 3; do \\\n"
+        "        rm -rf /var/lib/apt/lists/*; \\\n"
+        "        apt-get clean; \\\n"
+        "        if apt-get update -o Acquire::Retries=5 \\\n"
+        "            -o Acquire::http::Timeout=30 \\\n"
+        "            -o Acquire::https::Timeout=30 \\\n"
+        "            && apt-get install -y --fix-missing \\\n"
+        "            -o Acquire::Retries=5 \\\n"
+        "            -o Acquire::http::Timeout=30 \\\n"
+        "            -o Acquire::https::Timeout=30 \\\n"
+        f"{package_lines}"
+        "        ; then \\\n"
+        "            rm -rf /var/lib/apt/lists/*; \\\n"
+        "            break; \\\n"
+        "        fi; \\\n"
+        "        apt-get install -f -y || true; \\\n"
+        "        dpkg --configure -a || true; \\\n"
+        "        if [ \"$attempt\" -eq 3 ]; then exit 1; fi; \\\n"
+        "        sleep $((attempt * 15)); \\\n"
+        "    done\n"
+    )
+
+
 def _apply_task_patch(*, task_id: str, patch_name: str, task_root: Path) -> list[str]:
     if patch_name == "offer_letter_generator_system_docx":
         if task_id != "offer-letter-generator":
@@ -1921,7 +2319,14 @@ def _apply_task_patch(*, task_id: str, patch_name: str, task_root: Path) -> list
         dockerfile_text = dockerfile_path.read_text(encoding="utf-8")
         dockerfile_text = dockerfile_text.replace(
             "RUN apt-get update && apt-get install -y \\\n    python3 \\\n    python3-pip \\\n    curl \\\n    && rm -rf /var/lib/apt/lists/*\n\n# Install Python packages\nRUN pip3 install --break-system-packages \\\n    python-docx==1.1.2\n",
-            "RUN apt-get update && apt-get install -y \\\n    python3 \\\n    python3-pip \\\n    python3-docx \\\n    curl \\\n    && rm -rf /var/lib/apt/lists/*\n",
+            _build_apt_retry_install_snippet(
+                packages=[
+                    "python3",
+                    "python3-pip",
+                    "python3-docx",
+                    "curl",
+                ]
+            ),
         )
         dockerfile_path.write_text(dockerfile_text, encoding="utf-8")
         return [str(dockerfile_path)]
@@ -1932,17 +2337,7 @@ def _apply_task_patch(*, task_id: str, patch_name: str, task_root: Path) -> list
         dockerfile_text = dockerfile_path.read_text(encoding="utf-8")
         updated_text = dockerfile_text.replace(
             "RUN apt-get update && apt-get install -y graphviz && rm -rf /var/lib/apt/lists/*\n",
-            (
-                "RUN apt-get update -o Acquire::Retries=5 \\\n"
-                "    -o Acquire::http::Timeout=30 \\\n"
-                "    -o Acquire::https::Timeout=30 \\\n"
-                "    && apt-get install -y --fix-missing \\\n"
-                "    -o Acquire::Retries=5 \\\n"
-                "    -o Acquire::http::Timeout=30 \\\n"
-                "    -o Acquire::https::Timeout=30 \\\n"
-                "    graphviz \\\n"
-                "    && rm -rf /var/lib/apt/lists/*\n"
-            ),
+            _build_apt_retry_install_snippet(packages=["graphviz"]),
         )
         if updated_text == dockerfile_text:
             raise ValueError(f"Patch {patch_name} could not find expected Dockerfile snippet for {task_id}")
@@ -1962,21 +2357,15 @@ def _apply_task_patch(*, task_id: str, patch_name: str, task_root: Path) -> list
             "    curl \\\n"
             "    ca-certificates \\\n"
             "    && rm -rf /var/lib/apt/lists/*\n",
-            (
-                "RUN apt-get update -o Acquire::Retries=5 \\\n"
-                "    -o Acquire::http::Timeout=30 \\\n"
-                "    -o Acquire::https::Timeout=30 \\\n"
-                "    && apt-get install -y --fix-missing \\\n"
-                "    -o Acquire::Retries=5 \\\n"
-                "    -o Acquire::http::Timeout=30 \\\n"
-                "    -o Acquire::https::Timeout=30 \\\n"
-                "    python3 \\\n"
-                "    python3-pip \\\n"
-                "    python3-venv \\\n"
-                "    wget \\\n"
-                "    curl \\\n"
-                "    ca-certificates \\\n"
-                "    && rm -rf /var/lib/apt/lists/*\n"
+            _build_apt_retry_install_snippet(
+                packages=[
+                    "python3",
+                    "python3-pip",
+                    "python3-venv",
+                    "wget",
+                    "curl",
+                    "ca-certificates",
+                ]
             ),
         )
         if updated_text == dockerfile_text:

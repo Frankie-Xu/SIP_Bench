@@ -34,10 +34,12 @@ from sip_bench.protocol_runner import (
     _infer_failure_family,
     _resolve_command_value,
     _strip_skills_from_dockerfile_text,
+    build_evoagentbench_explicit_plan,
     build_mock_bench_explicit_plan,
     build_skillsbench_explicit_plan,
     build_tau_explicit_plan,
     load_protocol_suite_config,
+    run_evoagentbench_suite,
     run_mock_bench_suite,
     run_skillsbench_suite,
     run_tau_bench_suite,
@@ -132,6 +134,30 @@ class ProtocolRunnerTests(unittest.TestCase):
         self.assertTrue(_scores_non_ceiling([1.0, 0.95, 1.0]))
         self.assertFalse(_scores_non_ceiling([1.0, 0.98, 1.0]))
 
+    def test_build_evoagentbench_explicit_plan(self) -> None:
+        plan = build_evoagentbench_explicit_plan(
+            repo_root="benchmarks/EvoAgentBench",
+            domain="omni_math",
+            split_task_ids={
+                "replay": ["omni_replay_01"],
+                "adapt": ["omni_adapt_01"],
+                "heldout": ["omni_heldout_01"],
+                "drift": [],
+            },
+            agent="nanobot",
+            model="gpt-5.4-mini",
+            python_bin="python3.12",
+            config_path="config.yaml",
+            job_name="demo-job",
+        )
+        self.assertEqual(plan["benchmark_name"], "evoagentbench")
+        self.assertEqual(plan["selection"]["domain"], "omni_math")
+        self.assertEqual(plan["manifest"]["counts"]["heldout"], 1)
+        heldout_command = plan["commands"]["heldout"][0]
+        self.assertEqual(heldout_command[:2], ["python3.12", str(Path("benchmarks/EvoAgentBench") / "src" / "run.py")])
+        self.assertIn("--split", heldout_command)
+        self.assertIn("test", heldout_command)
+
     def test_create_task_helper_scripts_writes_docker_helpers(self) -> None:
         class FakeEnvironment:
             session_id = "dialogue-parser__AbC123"
@@ -213,6 +239,111 @@ class ProtocolRunnerTests(unittest.TestCase):
             )
 
             self.assertEqual(allocated, "retry-suite-t0_replay-attempt01-rerun03")
+
+    def test_run_evoagentbench_suite_import_only_aggregates_multiple_strategies(self) -> None:
+        def write_result(root: Path, task_id: str, reward: float, *, total_tokens: int) -> None:
+            root.mkdir(parents=True, exist_ok=True)
+            (root / "result.json").write_text(
+                json.dumps(
+                    {
+                        "task_name": task_id,
+                        "trial": 1,
+                        "attempt": 1,
+                        "started_at": "2026-04-20T00:00:00Z",
+                        "ended_at": "2026-04-20T00:00:10Z",
+                        "agent_result": {
+                            "elapsed_sec": 10.0,
+                            "completion_status": "completed",
+                            "token_usage": {
+                                "turns": 2,
+                                "input": total_tokens // 3,
+                                "output": total_tokens - (total_tokens // 3),
+                                "total": total_tokens,
+                            },
+                        },
+                        "verifier_result": {
+                            "reward": reward,
+                            "method": "exact",
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            repo_root = tmp_path / "evo"
+            repo_root.mkdir()
+            raw_root = tmp_path / "raw"
+
+            strategies = {
+                "baseline": {
+                    "agent_version": "baseline",
+                    "scores": {"t0_replay": 0.5, "t0_heldout": 0.2, "t1_adapt": 0.6, "t1_replay": 0.45, "t1_heldout": 0.25},
+                },
+                "memory": {
+                    "agent_version": "memory",
+                    "scores": {"t0_replay": 0.5, "t0_heldout": 0.2, "t1_adapt": 0.8, "t1_replay": 0.5, "t1_heldout": 0.6},
+                },
+            }
+
+            runs: list[dict[str, object]] = []
+            for strategy_name, strategy in strategies.items():
+                for run_name, phase, split, task_id in (
+                    ("t0_replay", "T0", "replay", "omni_replay_01"),
+                    ("t0_heldout", "T0", "heldout", "omni_heldout_01"),
+                    ("t1_adapt", "T1", "adapt", "omni_adapt_01"),
+                    ("t1_replay", "T1", "replay", "omni_replay_01"),
+                    ("t1_heldout", "T1", "heldout", "omni_heldout_01"),
+                ):
+                    score_key = run_name
+                    result_dir = raw_root / strategy_name / run_name
+                    write_result(result_dir, task_id, float(strategy["scores"][score_key]), total_tokens=60 if split == "adapt" else 20)
+                    runs.append(
+                        {
+                            "run_name": f"{strategy_name}_{run_name}",
+                            "phase": phase,
+                            "benchmark_split": split,
+                            "task_ids": [task_id],
+                            "seed": 0,
+                            "agent_version": strategy["agent_version"],
+                            "agent_name": "nanobot",
+                            "model_name": "demo-model",
+                            "source_result_file": str(result_dir),
+                        }
+                    )
+
+            config = {
+                "schema_version": "0.1.0",
+                "suite_name": "evoagentbench-omni-demo",
+                "benchmark_name": "evoagentbench",
+                "repo_root": str(repo_root),
+                "out_root": str(tmp_path / "out"),
+                "execution": {
+                    "domain": "omni_math",
+                    "agent": "nanobot",
+                    "model": "demo-model",
+                    "path_type": "external",
+                    "agent_version": "default-demo",
+                },
+                "runs": runs,
+            }
+            config_path = tmp_path / "evo_suite.json"
+            config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+            report = run_evoagentbench_suite(
+                config_path=config_path,
+                execute_mode="mock",
+            )
+
+            self.assertTrue(report["runs_validation"]["valid"])
+            summary_rows = load_jsonl(Path(report["summary"]["summary_path"]))
+            self.assertEqual(len(summary_rows), 2)
+            by_strategy = {row["agent_version"]: row for row in summary_rows}
+            self.assertGreater(by_strategy["memory"]["metrics"]["fg_mean"], by_strategy["baseline"]["metrics"]["fg_mean"])
+            self.assertGreater(by_strategy["memory"]["metrics"]["nis_mean"], by_strategy["baseline"]["metrics"]["nis_mean"])
+            self.assertEqual(report["evidence"]["evidence_status"], "screening")
 
     def test_plan_skillsbench_retry_matches_message_substrings(self) -> None:
         decision = _plan_skillsbench_retry(

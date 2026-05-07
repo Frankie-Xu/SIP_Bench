@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -11,7 +12,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 import sip_bench.adapters as adapters
-from sip_bench.adapters import BenchmarkAdapter, MockBenchAdapter, SkillsBenchAdapter, TauBenchAdapter
+from sip_bench.adapters import BenchmarkAdapter, EvoAgentBenchAdapter, MockBenchAdapter, SkillsBenchAdapter, TauBenchAdapter
 
 
 class SkillsBenchAdapterTests(unittest.TestCase):
@@ -217,6 +218,144 @@ class MockBenchAdapterTests(unittest.TestCase):
         self.assertEqual(runs[0]["model_name"], "fixture-model")
         self.assertEqual(runs[1]["path_type"], "external")
         self.assertFalse(runs[1]["success"])
+
+
+class EvoAgentBenchAdapterTests(unittest.TestCase):
+    def test_build_run_command_and_parse_result_filter(self) -> None:
+        adapter = EvoAgentBenchAdapter()
+        command = adapter.build_run_command(
+            repo_root="benchmarks/EvoAgentBench",
+            domain="omni_math",
+            split="test",
+            task_ids=["omni_demo_01"],
+            agent="nanobot",
+            model="gpt-5.4-mini",
+            python_bin="python3.12",
+            config_path="config.yaml",
+            job_name="omni-demo",
+        )
+        self.assertEqual(command[:2], ["python3.12", str(Path("benchmarks/EvoAgentBench") / "src" / "run.py")])
+        self.assertIn("--job", command)
+        self.assertIn("omni-demo", command)
+        self.assertIn("--task", command)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            first_dir = root / "omni_demo_01"
+            second_dir = root / "omni_demo_02"
+            first_dir.mkdir()
+            second_dir.mkdir()
+            (first_dir / "result.json").write_text(
+                '{"task_name":"omni_demo_01","trial":1,"attempt":1,"started_at":"2026-04-20T00:00:00Z","ended_at":"2026-04-20T00:00:10Z","agent_result":{"elapsed_sec":10.0,"completion_status":"completed","token_usage":{"turns":2,"input":10,"output":20,"total":30}},"verifier_result":{"reward":1.0,"method":"exact"}}\n',
+                encoding="utf-8",
+            )
+            (second_dir / "result.json").write_text(
+                '{"task_name":"omni_demo_02","trial":1,"attempt":1,"started_at":"2026-04-20T00:01:00Z","ended_at":"2026-04-20T00:01:10Z","agent_result":{"elapsed_sec":10.0,"completion_status":"completed","token_usage":{"turns":1,"input":5,"output":10,"total":15}},"verifier_result":{"reward":0.0,"method":"exact"}}\n',
+                encoding="utf-8",
+            )
+
+            runs = adapter.parse_result_file(
+                root,
+                domain="omni_math",
+                benchmark_split="heldout",
+                phase="T1",
+                path_type="external",
+                model_name="gpt-5.4-mini",
+                agent_name="nanobot",
+                agent_version="fixture-strategy",
+                seed=3,
+                task_ids={"omni_demo_01"},
+            )
+
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]["task_id"], "omni_demo_01")
+        self.assertTrue(runs[0]["success"])
+        self.assertEqual(runs[0]["token_total"], 30)
+
+    def test_parse_result_file_prefers_completed_attempt_and_falls_back_to_top_level_usage(self) -> None:
+        adapter = EvoAgentBenchAdapter()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "omni_demo_03"
+            task_dir.mkdir()
+            (task_dir / "result.json").write_text(
+                (
+                    '{"task_name":"omni_demo_03","trial":1,"attempt":2,'
+                    '"started_at":"2026-04-20T00:02:00Z","ended_at":"2026-04-20T00:02:10Z",'
+                    '"agent_result":{"elapsed_sec":10.0,"completion_status":"completed"},'
+                    '"token_usage":{"turns":3,"input":7,"output":11,"total":18},'
+                    '"verifier_result":{"reward":1.0,"method":"exact"}}\n'
+                ),
+                encoding="utf-8",
+            )
+            stale_dir = task_dir / "retry_attempt_0"
+            stale_dir.mkdir()
+            (stale_dir / "result.json").write_text(
+                (
+                    '{"task_name":"omni_demo_03","trial":1,"attempt":1,'
+                    '"started_at":"2026-04-20T00:01:00Z","ended_at":"2026-04-20T00:01:10Z",'
+                    '"agent_result":{"elapsed_sec":0.0,"completion_status":"unknown"},'
+                    '"verifier_result":{"reward":0.0,"method":"exact"}}\n'
+                ),
+                encoding="utf-8",
+            )
+
+            runs = adapter.parse_result_file(
+                Path(tmpdir),
+                domain="omni_math",
+                benchmark_split="heldout",
+                phase="T1",
+                path_type="external",
+                model_name="gpt-5.2",
+                agent_name="codex",
+                agent_version="baseline",
+                seed=0,
+            )
+
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]["task_id"], "omni_demo_03")
+        self.assertEqual(runs[0]["attempt_index"], 1)
+        self.assertEqual(runs[0]["token_input"], 7)
+        self.assertEqual(runs[0]["token_output"], 11)
+        self.assertEqual(runs[0]["token_total"], 18)
+
+    def test_parse_result_file_falls_back_to_session_usage_when_result_omits_tokens(self) -> None:
+        adapter = EvoAgentBenchAdapter()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "omni_demo_04"
+            task_dir.mkdir()
+            (task_dir / "result.json").write_text(
+                (
+                    '{"task_name":"omni_demo_04","trial":1,"attempt":1,'
+                    '"started_at":"2026-04-20T00:03:00Z","ended_at":"2026-04-20T00:03:10Z",'
+                    '"agent_result":{"elapsed_sec":10.0,"completion_status":"completed"},'
+                    '"verifier_result":{"reward":0.0,"method":"exact"}}\n'
+                ),
+                encoding="utf-8",
+            )
+            (task_dir / "session.jsonl").write_text(
+                (
+                    '{"type":"thread.started"}\n'
+                    '{"type":"turn.completed","usage":{"input_tokens":13,"output_tokens":21}}\n'
+                ),
+                encoding="utf-8",
+            )
+
+            runs = adapter.parse_result_file(
+                task_dir / "result.json",
+                domain="omni_math",
+                benchmark_split="drift",
+                phase="T2",
+                path_type="external",
+                model_name="gpt-5.2",
+                agent_name="codex",
+                agent_version="baseline",
+                seed=0,
+            )
+
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]["token_input"], 13)
+        self.assertEqual(runs[0]["token_output"], 21)
+        self.assertEqual(runs[0]["token_total"], 34)
 
 
 if __name__ == "__main__":

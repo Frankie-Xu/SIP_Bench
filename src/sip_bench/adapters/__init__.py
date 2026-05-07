@@ -2,6 +2,7 @@ from sip_bench.adapters.base import BenchmarkAdapter, SplitManifest, TaskDescrip
 from sip_bench.adapters.skillsbench import SkillsBenchAdapter
 from sip_bench.adapters.mock_bench import MockBenchAdapter
 from sip_bench.adapters.tau_bench import TauBenchAdapter
+from sip_bench.adapters.evoagentbench import EvoAgentBenchAdapter
 
 __all__ = [
     "BenchmarkAdapter",
@@ -10,4 +11,5 @@ __all__ = [
     "MockBenchAdapter",
     "SkillsBenchAdapter",
     "TauBenchAdapter",
+    "EvoAgentBenchAdapter",
 ]

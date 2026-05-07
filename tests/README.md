@@ -23,10 +23,16 @@ No benchmark result should enter the main table unless:
 3. adapter smoke tests pass
 4. importer regression tests pass
 
-## First Command
+## First Commands
 
-```powershell
-python -m unittest discover -s tests -p "test_*.py"
-python scripts\validate_records.py --data results\dryrun\sample_runs.jsonl --schema runs
-python scripts\run_eval.py import-skillsbench-results --source tests\fixtures\skillsbench_results_sample.json --out results\dryrun\skillsbench_runs_sample.jsonl --benchmark-split golden --phase T1 --seed 3 --registry tests\fixtures\skillsbench_registry_sample.json --agent-version fixture-import --benchmark-version skillsbench-fixture
+```bash
+python3 -m unittest discover -s tests -p "test_*.py"
+python3 scripts/validate_records.py --data results/dryrun/sample_runs.jsonl --schema runs
+python3 scripts/run_release_checks.py
 ```
+
+## Notes
+
+1. `Linux-first` is the maintained path for public validation.
+2. Tests are written against tracked fixtures so they do not require private benchmark credentials.
+3. If you add a new adapter or importer path, include at least one fixture-backed regression test.

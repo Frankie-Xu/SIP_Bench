@@ -84,6 +84,17 @@ def run_step(name: str, command: list[str]) -> dict[str, object]:
     }
 
 
+def _compact_plan_matrix(report: dict[str, object]) -> dict[str, object]:
+    """Keep CI output readable by storing only the top-level plan-matrix summary."""
+    return {
+        "checked": report.get("checked"),
+        "failed": report.get("failed"),
+        "warnings": report.get("warnings"),
+        "strict": report.get("strict"),
+        "status": report.get("status"),
+    }
+
+
 def _file_sha256(path: Path) -> str | None:
     if not path.exists():
         return None
@@ -280,7 +291,7 @@ def main() -> int:
                 if args.plan_matrix_strict and matrix_report["status"] != "pass":
                     steps[-1]["status"] = "failed"
                     steps[-1]["returncode"] = 1
-                steps[-1]["plan_matrix"] = matrix_report
+                steps[-1]["plan_matrix"] = _compact_plan_matrix(matrix_report)
 
         report = {
             "python_bin": python_bin,

@@ -270,6 +270,9 @@ def main() -> int:
         out_path = Path(args.out)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    return 1 if failed else 0
+
+
 def run_plan_matrix(
     protocol_dir: str = "protocol",
     configs: list[str] | None = None,

@@ -4,15 +4,22 @@
 
 `SIP-Bench` is a protocol-layer benchmark for self-improvement. The project does not define a new world simulator. It wraps existing agent benchmarks with a shared longitudinal protocol so improvement, retention, and cost can be measured under one contract.
 
-The MVP focuses on two benchmark families:
+The repository is intentionally adapter-first. The current main benchmark families are:
 
 1. `SkillsBench`
-2. `tau-bench`
+2. `EvoAgentBench`
+3. `tau-bench`
 
-The published `v0.1.0` release posture is `Linux-first` and open-source-release-oriented. The release-critical evidence path is:
+Their roles are different:
+
+1. `SkillsBench` is the clearest real execution-backed path.
+2. `EvoAgentBench` is the clearest demonstration that the protocol can wrap a substantially different self-improvement workflow.
+3. `tau-bench` is a useful supplementary path that proves the same normalization and protocol layer can also work in an import-oriented environment.
+
+The published `v0.1.0` release posture is `Linux-first` and open-source-release-oriented. The public evidence path is:
 
 1. real `SkillsBench oracle` suite artifacts
-2. `tau-bench historical/import-only` suite artifacts
+2. `tau-bench historical/import-only` suite artifacts as supplementary support
 
 Experimental paths such as `SkillsBench codex external prepared` and `tau-bench` live provider-backed runs remain useful, but they are not release blockers.
 
@@ -108,6 +115,8 @@ Protocol split container with overlap checking.
 Base class for task discovery and split construction.
 
 This keeps benchmark-specific knowledge out of the metric engine and out of the CLI.
+
+This separation is the main extensibility lever in the project. In practice, if a new benchmark can be discovered, split, and imported through a `BenchmarkAdapter`, it can be evaluated under the same SI protocol without changing the metric layer.
 
 ## SkillsBench Adapter
 

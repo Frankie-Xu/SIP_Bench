@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-title: SI-Protocol Benchmark
+title: SIP-Bench
 message: If you use SIP-Bench, please cite this software entry.
 type: software
 license: Apache-2.0

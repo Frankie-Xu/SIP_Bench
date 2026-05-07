@@ -13,6 +13,10 @@ export BUILDKIT_PROGRESS=plain
 export PYTHONPATH="${SCRIPT_DIR}/../tools/harbor_codex_bridge:${SCRIPT_DIR}/../src${PYTHONPATH:+:$PYTHONPATH}"
 export SIP_HARBOR_CODEX_AUTH_SOURCE="${HOME}/.codex/auth.json"
 
+if [ -x "/mnt/e/Docker/resources/bin/docker.exe" ]; then
+  export PATH="${SCRIPT_DIR}/../tools/docker_wsl_shim:${PATH}"
+fi
+
 if command -v harbor >/dev/null 2>&1; then
   exec harbor "$@"
 fi

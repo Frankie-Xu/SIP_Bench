@@ -14,6 +14,7 @@ from sip_bench.runner import (
     build_skillsbench_plan,
     execute_command_plan,
     hydrate_skillsbench_checkout,
+    import_evoagentbench_results,
     import_skillsbench_job,
     import_skillsbench_results,
     import_tau_results,
@@ -139,6 +140,30 @@ def parse_args() -> argparse.Namespace:
     skillsbench_job.add_argument("--agent-name", help="Optional override for agent_name.")
     skillsbench_job.add_argument("--agent-version", default="harbor-job-import")
     skillsbench_job.add_argument("--benchmark-version", help="Optional override for benchmark_version.")
+
+    evo_import = subparsers.add_parser(
+        "import-evoagentbench-results",
+        help="Convert EvoAgentBench result files into SIP-Bench runs.jsonl records.",
+    )
+    evo_import.add_argument("--source", required=True, help="Path to EvoAgentBench result directory or file.")
+    evo_import.add_argument("--out", required=True, help="Path to output runs.jsonl.")
+    evo_import.add_argument("--domain", required=True, choices=["swe_bench", "omni_math", "gdp_val", "live_code_bench", "browse_comp_plus"])
+    evo_import.add_argument("--benchmark-split", required=True, choices=["replay", "adapt", "heldout", "drift"])
+    evo_import.add_argument("--phase", required=True, choices=["T0", "T1", "T2"])
+    evo_import.add_argument("--path-type", required=True, choices=["frozen", "external", "parameter", "oracle"])
+    evo_import.add_argument("--model-name", required=True)
+    evo_import.add_argument("--agent-name", required=True)
+    evo_import.add_argument("--agent-version", required=True)
+    evo_import.add_argument("--seed", required=True, type=int)
+    evo_import.add_argument("--benchmark-version", default="v1.0")
+    evo_import.add_argument("--job-name", help="Optional job name for run ID context.")
+    evo_import.add_argument(
+        "--task-id",
+        action="append",
+        dest="task_ids",
+        default=[],
+        help="Optional repeatable task_id filter. Only matching EvoAgentBench task results are imported.",
+    )
 
     return parser.parse_args()
 
@@ -309,6 +334,39 @@ def main() -> int:
                     "runs": len(runs),
                     "successes": sum(1 for run in runs if run["success"]),
                     "failures": sum(1 for run in runs if not run["success"]),
+                    "benchmark_split": args.benchmark_split,
+                    "phase": args.phase,
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    if args.command == "import-evoagentbench-results":
+        runs = import_evoagentbench_results(
+            source=args.source,
+            out=args.out,
+            domain=args.domain,
+            benchmark_split=args.benchmark_split,
+            phase=args.phase,
+            path_type=args.path_type,
+            model_name=args.model_name,
+            agent_name=args.agent_name,
+            agent_version=args.agent_version,
+            seed=args.seed,
+            benchmark_version=args.benchmark_version,
+            job_name=args.job_name,
+            task_ids=set(args.task_ids) or None,
+        )
+        print(
+            json.dumps(
+                {
+                    "command": args.command,
+                    "out": args.out,
+                    "runs": len(runs),
+                    "successes": sum(1 for run in runs if run["success"]),
+                    "failures": sum(1 for run in runs if not run["success"]),
+                    "domain": args.domain,
                     "benchmark_split": args.benchmark_split,
                     "phase": args.phase,
                 },

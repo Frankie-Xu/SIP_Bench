@@ -15,3 +15,5 @@ Checked 2026-09-12 from `navilia-medical-adapter`.
   upstream checkout availability to resolve.
 
 No PR-scoped code change was made for this infrastructure-only blocker.
+
+Follow-up check: GitHub now reports `headRefOid=acf0a98ff101b8d26a630a24f86e84d69a5019a5`, matching the latest local commit. The PR remains open, has no reviews, and still has an empty `statusCheckRollup`; no new CI or review information is available.

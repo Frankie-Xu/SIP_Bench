@@ -17,3 +17,12 @@ Checked 2026-09-12 from `navilia-medical-adapter`.
 No PR-scoped code change was made for this infrastructure-only blocker.
 
 Follow-up check: GitHub now reports `headRefOid=acf0a98ff101b8d26a630a24f86e84d69a5019a5`, matching the latest local commit. The PR remains open, has no reviews, and still has an empty `statusCheckRollup`; no new CI or review information is available.
+
+Latest API check: workflow run `34692897466` for this SHA completed with
+`conclusion=action_required`; it did not create any check runs. The PR is
+`MERGEABLE` but `mergeStateStatus=UNSTABLE`. This is consistent with GitHub
+requiring workflow approval for a fork-originated pull request. A neutral
+maintainer note would be: “The CI workflow is present and the PR is mergeable;
+the run is waiting on GitHub’s action approval and has not produced test
+results yet. Once approved, the existing `make ci` workflow can report the
+actual checks.”

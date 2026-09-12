@@ -17,7 +17,11 @@ class MedicalAdapter(BenchmarkAdapter):
 
     def discover_tasks(self, source: str | Path) -> list[TaskDescriptor]:
         source_path = Path(source)
-        payload = json.loads(source_path.read_text(encoding="utf-8"))
+        text = source_path.read_text(encoding="utf-8")
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            payload = [json.loads(line) for line in text.splitlines() if line.strip()]
         if isinstance(payload, dict) and payload.get("resourceType") == "Bundle":
             rows = _bundle_to_cases(payload)
             if not rows:
@@ -30,6 +34,8 @@ class MedicalAdapter(BenchmarkAdapter):
                     pass
         else:
             rows = payload.get("cases", payload) if isinstance(payload, dict) else payload
+            if isinstance(rows, dict) and ("diagnosis" in rows or "answer" in rows or "task_id" in rows):
+                rows = [rows]
         if not isinstance(rows, list):
             raise ValueError("Medical fixture must be a list or {cases: [...]}")
         out: list[TaskDescriptor] = []

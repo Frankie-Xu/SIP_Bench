@@ -25,13 +25,7 @@ class MedicalAdapter(BenchmarkAdapter):
         if isinstance(payload, dict) and payload.get("resourceType") == "Bundle":
             rows = _bundle_to_cases(payload)
             if not rows:
-                # Synthea exports often contain observations/conditions without
-                # Encounter resources; use the shared Navilia mapper in that case.
-                try:
-                    from navilia_pipeline.converter import convert, load_fhir
-                    rows = convert(load_fhir(source_path))["sip"]
-                except ImportError:
-                    pass
+                raise ValueError("FHIR Bundle has no labeled Encounter/Condition pairs")
         else:
             rows = payload.get("cases", payload) if isinstance(payload, dict) else payload
             if isinstance(rows, dict) and ("diagnosis" in rows or "answer" in rows or "task_id" in rows):
@@ -91,10 +85,10 @@ class MedicalAdapter(BenchmarkAdapter):
         low = text.lower(); correct = prediction == diagnosis
         if not safety_gate_passed or any(x in low for x in ("unsafe", "under-triage", "red flag")):
             category = "safety"
+        elif not correct or any(x in low for x in ("wrong", "incorrect", "missed", "disagree", "not correct")):
+            category = "diagnosis_error"
         elif correct and any(x in low for x in ("good", "correct", "agree")):
             category = "affirmation"
-        elif not correct or any(x in low for x in ("wrong", "incorrect", "missed")):
-            category = "diagnosis_error"
         else:
             category = "clinical_reasoning"
         return {"category": category, "prediction": prediction, "diagnosis": diagnosis, "correct": correct, "feedback": text}
@@ -119,7 +113,7 @@ class MedicalAdapter(BenchmarkAdapter):
         result = {"adapter": cls.__name__, "benchmark_name": cls.benchmark_name, "benchmark_version": cls.benchmark_version,
                   "patient_id": case.get("patient_id"), "encounter_id": case["encounter_id"],
                   "case_sha256": hashlib.sha256(raw.encode()).hexdigest()}
-        if extra: result.update(dict(extra))
+        if extra: result["source"] = dict(extra)
         return result
 
 
@@ -147,12 +141,32 @@ search_cases = utility_aware_retrieve
 
 
 def _bundle_to_cases(bundle: Mapping[str, Any]) -> list[dict[str, Any]]:
-    resources = [e.get("resource", {}) for e in bundle.get("entry", []) if isinstance(e, Mapping)]
+    entries = [e for e in bundle.get("entry", []) if isinstance(e, Mapping) and isinstance(e.get("resource"), Mapping)]
+    resources = [e["resource"] for e in entries]
     encounters = [r for r in resources if r.get("resourceType") == "Encounter"]
     conditions = [r for r in resources if r.get("resourceType") == "Condition"]
     out = []
     for enc in encounters:
-        eid = str(enc.get("id", "")); cond = next((c for c in conditions if str((c.get("encounter") or {}).get("reference", "")).endswith(eid)), {})
-        coding = ((cond.get("code") or {}).get("coding") or [{}])[0]
-        out.append({"encounter_id": eid, "patient_id": str((enc.get("subject") or {}).get("reference", "")).split("/")[-1], "symptoms": [], "vitals": {}, "diagnosis": coding.get("code") or coding.get("display") or "unknown"})
+        eid = str(enc.get("id") or "")
+        if not eid:
+            raise ValueError("FHIR Encounter requires an id")
+        refs = {f"Encounter/{eid}"}
+        refs.update(e["fullUrl"] for e in entries if e["resource"] is enc and e.get("fullUrl"))
+        patient_ref = (enc.get("subject") or {}).get("reference")
+        labels = set()
+        for cond in conditions:
+            if (cond.get("encounter") or {}).get("reference") not in refs:
+                continue
+            subject = (cond.get("subject") or {}).get("reference")
+            if subject and patient_ref and subject != patient_ref:
+                raise ValueError(f"Condition subject differs from Encounter/{eid}")
+            coding = ((cond.get("code") or {}).get("coding") or [{}])[0]
+            label = coding.get("code") or coding.get("display")
+            if label:
+                labels.add(str(label))
+        if len(labels) > 1:
+            raise ValueError(f"Encounter/{eid} has multiple labels; provide an explicit task label")
+        if not labels:
+            continue
+        out.append({"encounter_id": eid, "patient_id": str(patient_ref or ""), "symptoms": [], "vitals": {}, "diagnosis": labels.pop()})
     return out

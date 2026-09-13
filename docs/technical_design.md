@@ -297,6 +297,12 @@ Current release-facing constraints:
 
 Tracked release assets should focus on protocol code, schemas, CLI entrypoints, docs, tests, and representative validated artifacts.
 
+`scripts/run_release_checks.py` requires the dry-run run and summary records
+and the `SkillsBench oracle` summary because they are schema-validation inputs
+for the supported release path. The tau-bench historical result files are
+supplementary import evidence: their absence is reported in the release report
+as `missing_optional_historical`, but does not fail the release asset gate.
+
 The following are intentionally not part of the current release-critical surface:
 
 1. local caches and local dependency overlays

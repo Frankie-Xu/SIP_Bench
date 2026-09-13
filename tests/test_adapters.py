@@ -3,8 +3,10 @@ from __future__ import annotations
 import inspect
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -410,3 +412,24 @@ class AdapterAgnosticContractTests(unittest.TestCase):
             self.skipTest("optional adapter is installed")
         with self.assertRaisesRegex(RuntimeError, "optional adapter package"):
             adapters.require_evoagentbench_adapter()
+
+    def test_optional_adapter_loader_distinguishes_absence_from_internal_failure(self) -> None:
+        module_name = "sip_bench.adapters.evoagentbench"
+        absent = ModuleNotFoundError("module absent")
+        absent.name = module_name
+        with patch.object(adapters, "import_module", side_effect=absent):
+            self.assertIsNone(adapters._load_evoagentbench_adapter())
+
+        installed = types.SimpleNamespace(EvoAgentBenchAdapter=MockBenchAdapter)
+        with patch.object(adapters, "import_module", return_value=installed):
+            self.assertIs(adapters._load_evoagentbench_adapter(), MockBenchAdapter)
+
+        internal = ModuleNotFoundError("jsonschema missing")
+        internal.name = "jsonschema"
+        with patch.object(adapters, "import_module", side_effect=internal):
+            with self.assertRaisesRegex(ModuleNotFoundError, "jsonschema missing"):
+                adapters._load_evoagentbench_adapter()
+
+    def test_optional_adapter_is_exported_when_available(self) -> None:
+        self.assertIn("EvoAgentBenchAdapter", adapters._public_adapter_exports(True))
+        self.assertNotIn("EvoAgentBenchAdapter", adapters._public_adapter_exports(False))

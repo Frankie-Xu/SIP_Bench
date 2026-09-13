@@ -12,6 +12,15 @@ import importlib.util
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+REQUIRED_RELEASE_SCHEMA_ASSETS = (
+    Path("results/dryrun/sample_runs.jsonl"),
+    Path("results/dryrun/summary.jsonl"),
+    Path("results/protocol_runs/skillsbench_oracle_real_suite/summary.jsonl"),
+)
+OPTIONAL_HISTORICAL_ARTIFACTS = (
+    Path("results/protocol_runs/tau_bench_retail_historical_suite/combined_runs.jsonl"),
+    Path("results/protocol_runs/tau_bench_retail_historical_suite/summary.jsonl"),
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -117,6 +126,17 @@ def _artifact_hashes(paths: list[Path]) -> list[dict[str, object]]:
             }
         )
     return rows
+
+
+def release_artifact_gate(root: Path = ROOT) -> dict[str, object]:
+    """Classify release-required schema records separately from optional history."""
+    missing_required = [str(path) for path in REQUIRED_RELEASE_SCHEMA_ASSETS if not (root / path).exists()]
+    missing_optional = [str(path) for path in OPTIONAL_HISTORICAL_ARTIFACTS if not (root / path).exists()]
+    return {
+        "required_schema_assets_present": not missing_required,
+        "missing_required": missing_required,
+        "missing_optional_historical": missing_optional,
+    }
 
 
 
@@ -315,16 +335,7 @@ def main() -> int:
                 ]
             )
 
-            report["artifact_gate"] = {
-                "required_schema_assets_present": all(
-                    Path(path).exists()
-                    for path in [
-                        ROOT / "results/dryrun/sample_runs.jsonl",
-                        ROOT / "results/dryrun/summary.jsonl",
-                        ROOT / "results/protocol_runs/skillsbench_oracle_real_suite/summary.jsonl",
-                    ]
-                )
-            }
+            report["artifact_gate"] = release_artifact_gate()
 
         print(json.dumps(report, indent=2), flush=True)
         if args.report:

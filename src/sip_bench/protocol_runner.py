@@ -8,7 +8,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from sip_bench.adapters import EvoAgentBenchAdapter, MockBenchAdapter, SkillsBenchAdapter, TauBenchAdapter
+from sip_bench.adapters import MockBenchAdapter, SkillsBenchAdapter, TauBenchAdapter, require_evoagentbench_adapter
 from sip_bench.adapters.base import SplitManifest, TaskDescriptor
 from sip_bench.metrics import aggregate_runs, load_jsonl, write_jsonl
 from sip_bench.runner import (
@@ -985,7 +985,7 @@ def build_evoagentbench_explicit_plan(
     job_name: str | None = None,
     extra_args: list[str] | None = None,
 ) -> dict[str, Any]:
-    adapter = EvoAgentBenchAdapter()
+    adapter = require_evoagentbench_adapter()()
     manifest = SplitManifest(
         replay=[
             TaskDescriptor(

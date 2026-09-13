@@ -25,7 +25,10 @@ class MedicalAdapter(BenchmarkAdapter):
         if isinstance(payload, dict) and payload.get("resourceType") == "Bundle":
             rows = _bundle_to_cases(payload)
             if not rows:
-                raise ValueError("FHIR Bundle has no labeled Encounter/Condition pairs")
+                raise ValueError(
+                    "FHIR Bundle has no labeled Encounter/Condition pairs; "
+                    "timeline event prediction is a different task contract"
+                )
         else:
             rows = payload.get("cases", payload) if isinstance(payload, dict) else payload
             if isinstance(rows, dict) and ("diagnosis" in rows or "answer" in rows or "task_id" in rows):

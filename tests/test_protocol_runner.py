@@ -14,6 +14,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from sip_bench.metrics import load_jsonl
+from sip_bench.adapters import EVOAGENTBENCH_AVAILABLE
 from sip_bench.harbor_codex_bridge import build_codex_agent_env, build_codex_auth_setup_command
 from sip_bench.harbor_codex_host_agent import (
     create_task_helper_scripts,
@@ -134,6 +135,7 @@ class ProtocolRunnerTests(unittest.TestCase):
         self.assertTrue(_scores_non_ceiling([1.0, 0.95, 1.0]))
         self.assertFalse(_scores_non_ceiling([1.0, 0.98, 1.0]))
 
+    @unittest.skipUnless(EVOAGENTBENCH_AVAILABLE, "optional EvoAgentBench adapter is not installed")
     def test_build_evoagentbench_explicit_plan(self) -> None:
         plan = build_evoagentbench_explicit_plan(
             repo_root="benchmarks/EvoAgentBench",
@@ -240,6 +242,7 @@ class ProtocolRunnerTests(unittest.TestCase):
 
             self.assertEqual(allocated, "retry-suite-t0_replay-attempt01-rerun03")
 
+    @unittest.skipUnless(EVOAGENTBENCH_AVAILABLE, "optional EvoAgentBench adapter is not installed")
     def test_run_evoagentbench_suite_import_only_aggregates_multiple_strategies(self) -> None:
         def write_result(root: Path, task_id: str, reward: float, *, total_tokens: int) -> None:
             root.mkdir(parents=True, exist_ok=True)
@@ -392,7 +395,8 @@ class ProtocolRunnerTests(unittest.TestCase):
             cmd_wrapper.write_text("@echo off\r\n", encoding="utf-8")
 
             resolved = _resolve_command_value(tmp_path, "scripts/harbor312.cmd")
-            self.assertEqual(resolved, str(wrapper))
+            self.assertEqual(Path(resolved).resolve(), wrapper.resolve())
+            self.assertEqual(Path(resolved).name, wrapper.name)
 
     def test_resolve_command_value_prefers_cmd_wrapper_on_windows(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -406,7 +410,8 @@ class ProtocolRunnerTests(unittest.TestCase):
 
             with patch("sip_bench.protocol_runner.os.name", "nt"):
                 resolved = _resolve_command_value(tmp_path, "scripts/harbor312")
-            self.assertEqual(resolved, str(cmd_wrapper))
+            self.assertEqual(Path(resolved).resolve(), cmd_wrapper.resolve())
+            self.assertEqual(Path(resolved).name, cmd_wrapper.name)
 
     def test_build_skillsbench_explicit_plan_preserves_split_assignment(self) -> None:
         plan = build_skillsbench_explicit_plan(

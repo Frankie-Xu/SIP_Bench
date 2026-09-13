@@ -322,7 +322,6 @@ def main() -> int:
                         ROOT / "results/dryrun/sample_runs.jsonl",
                         ROOT / "results/dryrun/summary.jsonl",
                         ROOT / "results/protocol_runs/skillsbench_oracle_real_suite/summary.jsonl",
-                        ROOT / "results/protocol_runs/tau_bench_retail_historical_suite/summary.jsonl",
                     ]
                 )
             }

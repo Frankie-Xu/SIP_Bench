@@ -31,6 +31,27 @@ class MedicalAdapterTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 MedicalAdapter().discover_tasks(handle.name)
 
+    def test_fhir_bundle_without_encounter_condition_pair_is_rejected(self):
+        bundle = {"resourceType": "Bundle", "entry": [
+            {"resource": {"resourceType": "Observation", "id": "o1"}},
+            {"resource": {"resourceType": "Condition", "id": "c1", "code": {"coding": [{"code": "x"}]}}},
+        ]}
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as handle:
+            json.dump(bundle, handle); handle.flush()
+            with self.assertRaisesRegex(ValueError, "different task contract"):
+                MedicalAdapter().discover_tasks(handle.name)
+
+    def test_fhir_pair_preserves_condition_label(self):
+        bundle = {"resourceType": "Bundle", "entry": [
+            {"resource": {"resourceType": "Encounter", "id": "e1", "subject": {"reference": "Patient/p1"}}},
+            {"resource": {"resourceType": "Condition", "id": "c1", "subject": {"reference": "Patient/p1"}, "encounter": {"reference": "Encounter/e1"}, "code": {"coding": [{"code": "diagnosis-x"}]}}},
+        ]}
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as handle:
+            json.dump(bundle, handle); handle.flush()
+            task = MedicalAdapter().discover_tasks(handle.name)[0]
+        self.assertEqual(task.task_id, "e1")
+        self.assertEqual(task.metadata["clinical"]["diagnosis"], "diagnosis-x")
+
 
 if __name__ == "__main__":
     unittest.main()

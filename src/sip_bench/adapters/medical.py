@@ -49,6 +49,15 @@ class MedicalAdapter(BenchmarkAdapter):
     def normalize_case(cls, case: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(case, Mapping):
             raise ValueError("Each medical case must be an object")
+        if (
+            case.get("schema") == "navilia.v1"
+            and case.get("benchmark") == "SIP-Bench"
+            and ("input_event_ids" in case or "evidence" in case)
+        ):
+            raise ValueError(
+                "Navilia SIP timeline event prediction is a different task contract; "
+                "do not map its answer to a diagnosis"
+            )
         encounter = str(case.get("task_id") or case.get("encounter_id") or case.get("case_id") or case.get("id") or "")
         diagnosis = str(case.get("diagnosis") or case.get("answer") or "")
         if not encounter or not diagnosis:

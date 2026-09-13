@@ -52,6 +52,26 @@ class MedicalAdapterTests(unittest.TestCase):
         self.assertEqual(task.task_id, "e1")
         self.assertEqual(task.metadata["clinical"]["diagnosis"], "diagnosis-x")
 
+    def test_navilia_timeline_prediction_json_is_rejected(self):
+        task = {
+            "schema": "navilia.v1", "benchmark": "SIP-Bench", "task_id": "case_t1",
+            "answer": "Condition", "input_event_ids": ["event-1"], "evidence": ["event-2"],
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as handle:
+            json.dump(task, handle); handle.flush()
+            with self.assertRaisesRegex(ValueError, "different task contract"):
+                MedicalAdapter().discover_tasks(handle.name)
+
+    def test_navilia_timeline_prediction_jsonl_is_rejected(self):
+        task = {
+            "schema": "navilia.v1", "benchmark": "SIP-Bench", "task_id": "case_t1",
+            "answer": "Condition", "input_event_ids": ["event-1"], "evidence": ["event-2"],
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl") as handle:
+            handle.write(json.dumps(task) + "\n"); handle.flush()
+            with self.assertRaisesRegex(ValueError, "different task contract"):
+                MedicalAdapter().discover_tasks(handle.name)
+
 
 if __name__ == "__main__":
     unittest.main()

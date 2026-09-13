@@ -27,10 +27,11 @@ the run is waiting on GitHub’s action approval and has not produced test
 results yet. Once approved, the existing `make ci` workflow can report the
 actual checks.”
 
-Repair update, 2026-09-14: PR branch code head `d8379da` rejects Navilia
+Repair update, 2026-09-14: PR branch code head `a3d8006` rejects Navilia
 timeline event-prediction rows on JSON, JSONL, and unsupported FHIR Bundle
-paths instead of treating their resource-type answers as diagnoses. The clean
-dependency environment completed 95 tests with 5 optional EvoAgentBench tests
-skipped, and `run_release_checks.py --plan-matrix` completed 9 steps with zero
-failures. The matrix retains 85 non-strict warnings for optional historical
-artifacts. GitHub Actions approval remains the only external CI blocker.
+paths instead of treating their resource-type answers as diagnoses. The
+dependency environment ran 99 tests: 94 passed and 5 optional EvoAgentBench
+integration tests skipped. `run_release_checks.py --plan-matrix` completed 9
+steps with zero failures. The matrix retains 85 non-strict warnings for
+optional historical artifacts. GitHub Actions approval remains the only
+external CI blocker.

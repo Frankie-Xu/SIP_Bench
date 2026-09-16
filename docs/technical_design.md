@@ -15,6 +15,7 @@ Their roles are different:
 1. `SkillsBench` is the clearest real execution-backed path.
 2. `EvoAgentBench` is the clearest demonstration that the protocol can wrap a substantially different self-improvement workflow.
 3. `tau-bench` is a useful supplementary path that proves the same normalization and protocol layer can also work in an import-oriented environment.
+4. `medical-synthea` is a small, native offline diagnosis fixture used to exercise the full protocol lifecycle without an external runtime.
 
 The published `v0.1.0` release posture is `Linux-first` and open-source-release-oriented. The public evidence path is:
 
@@ -117,6 +118,18 @@ Base class for task discovery and split construction.
 This keeps benchmark-specific knowledge out of the metric engine and out of the CLI.
 
 This separation is the main extensibility lever in the project. In practice, if a new benchmark can be discovered, split, and imported through a `BenchmarkAdapter`, it can be evaluated under the same SI protocol without changing the metric layer.
+
+## Native Medical Fixture Suite
+
+`protocol/medical_synthetic_suite.json` configures all twelve combinations of
+`T0`/`T1`/`T2` and `replay`/`adapt`/`heldout`/`drift`. The `run-medical-suite`
+command uses `MedicalAdapter` to discover the checked-in Synthea-compatible cases,
+validates that all four split assignments are disjoint, and emits the standard
+`runs/*.jsonl`, `combined_runs.jsonl`, `summary.jsonl`, and `suite_report.json`
+artifacts. A phase is evaluated from its declared state rather than config ordering:
+`T0` performs no adaptation, while `T1` and `T2` each train a fresh rule memory from
+the configured `adapt` cases. This preserves the diagnosis task boundary established
+by the adapter, which rejects Navilia timeline-event prediction records.
 
 ## SkillsBench Adapter
 

@@ -6,41 +6,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Mapping
-
 from sip_bench.adapters.medical import MedicalAdapter
-
-
-def observations(case: Mapping[str, Any]) -> dict[str, Any]:
-    return {"symptoms": list(case.get("symptoms", [])), "vitals": dict(case.get("vitals", {}))}
-
-
-def feature_key(features: Mapping[str, Any]) -> str | None:
-    if not features.get("symptoms") and not features.get("vitals"):
-        return None
-    return json.dumps({"symptoms": sorted(features.get("symptoms", [])),
-                       "vitals": features.get("vitals", {})}, sort_keys=True)
-
-
-class RuleMemory:
-    """Exact observation lookup trained only on the adaptation split."""
-
-    def __init__(self) -> None:
-        self.memory: dict[str, set[str]] = {}
-
-    def adapt(self, features: Mapping[str, Any], label: str) -> None:
-        key = feature_key(features)
-        if key is not None:
-            self.memory.setdefault(key, set()).add(label)
-
-    def predict(self, features: Mapping[str, Any]) -> str:
-        symptoms = set(features.get("symptoms", []))
-        if symptoms & {"chest_pain", "severe_bleeding"}:
-            return "emergency"
-        if "stroke_signs" in symptoms:
-            return "urgent"
-        labels = self.memory.get(feature_key(features), set())
-        return next(iter(labels)) if len(labels) == 1 else "unknown"
+from sip_bench.medical_runtime import RuleMemory, observations
 
 
 def run_demo(source: str | Path):

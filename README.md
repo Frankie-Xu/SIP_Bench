@@ -234,3 +234,11 @@ If you want to contribute or extend a benchmark adapter, read:
 ## License
 
 See [LICENSE](LICENSE) if present in this repository root. If your checkout does not yet include one, add a project license before public release.
+
+# Medical fixture accounting
+
+For the native `medical-synthea` fixture, `memory_reads` and `memory_writes` are
+logical protocol counters. A `T1` or `T2` adapt record reports one write for its
+adaptation call; all `T1`/`T2` records report one read because the phase has a
+memory-enabled policy. The emergency red-flag rules can return before an exact
+`RuleMemory` lookup, so these counters do not claim physical key-value-store I/O.

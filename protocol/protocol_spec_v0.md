@@ -190,6 +190,15 @@ Aggregated outputs must conform to:
 
 ## Benchmark-Specific Adapter Contract
 
+### Suite kinds and artifact contracts
+
+Protocol suite configs may declare `suite_kind` as `external` or `result-only`.
+External suites use benchmark plans, hydration, execution, or imported source
+artifacts. Result-only suites declare `expected_artifacts` and can be generated and
+schema-validated without credentials or an external benchmark runtime. The release
+checker keeps these contracts separate so a native suite does not require external
+plan or execution files.
+
 ### `medical-synthea` fixture suite
 
 The checked-in medical fixture is a native, offline protocol suite. Run it with:

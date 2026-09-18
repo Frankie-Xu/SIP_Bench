@@ -187,3 +187,10 @@ Use `gh pr create --repo Frankie-Xu/SIP_Bench --base medical-native-suite --head
 - [ ] **Step 4: Verify remote SHA, PR URL, and CI status.**
 
 Report commit SHA, PR URL, test result, and any `action_required` status. Do not merge or push upstream `main`.
+
+## Completion
+
+Implemented in four commits on `medical-native-ci`: `ab3b99a`, `e84d3f3`,
+`790e054`, and `e15e92e`. Full tests passed (104 total, 99 passed, 5 skipped).
+The credential-free release lane produced 12 runs and 24 records, validated both
+schemas, and emitted artifact hashes, cost totals, and failure-family counts.

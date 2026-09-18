@@ -1379,6 +1379,7 @@ def load_protocol_suite_config(config_path: str | Path) -> dict[str, Any]:
         )
         raise ValueError(f"Invalid protocol suite config: {message}")
     _validate_protocol_suite_semantics(config)
+    config.setdefault("suite_kind", "external")
     return _normalize_protocol_suite_config(config)
 
 
@@ -2198,6 +2199,14 @@ def _aggregate_suite_records(
 def _validate_protocol_suite_semantics(config: dict[str, Any]) -> None:
     benchmark_name = config["benchmark_name"]
     execution = config["execution"]
+    suite_kind = config.get("suite_kind", "external")
+    if suite_kind == "result-only":
+        expected = config.get("expected_artifacts") or {}
+        missing = [field for field in ("runs_per_suite", "records", "artifacts") if field not in expected]
+        if missing:
+            raise ValueError(f"Invalid result-only suite config, missing expected_artifacts fields: {missing}")
+    elif suite_kind != "external":
+        raise ValueError(f"Unsupported suite_kind in protocol suite config: {suite_kind}")
     if benchmark_name == "skillsbench":
         missing: list[str] = []
         for field in ("agent", "harbor_bin", "jobs_dir", "path_type", "agent_version"):

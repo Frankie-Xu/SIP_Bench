@@ -131,6 +131,14 @@ artifacts. A phase is evaluated from its declared state rather than config order
 the configured `adapt` cases. This preserves the diagnosis task boundary established
 by the adapter, which rejects Navilia timeline-event prediction records.
 
+The config is marked `suite_kind: result-only` and declares its expected 12 runs,
+24 records, combined JSONL, summary, and suite report. `run_release_checks.py`
+executes this lane in a temporary output directory, validates both shared schemas,
+records artifact hashes, and reports aggregate cost fields and failure families.
+The CI workflow uploads that report and generated artifacts without credentials,
+Docker, Harbor, or an upstream checkout. External suite configs keep their existing
+plan, hydration, execution, and source-artifact checks.
+
 ## SkillsBench Adapter
 
 Implemented in:

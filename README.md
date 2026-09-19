@@ -62,6 +62,7 @@ Current repository surface:
 | `tau-bench historical` | supplementary | import-only path with tracked suite artifacts |
 | `tau-bench live` | optional | requires provider credentials |
 | `SkillsBench prepared external` | experimental | useful for task-preparation and path validation |
+| `medical-synthea` native | credential-free | result-only suite with tracked config and generated CI artifacts |
 
 ## Why Clone This
 
@@ -85,6 +86,17 @@ python -m pip install -e .
 python3 scripts/run_release_checks.py
 python3 -m unittest discover -s tests -p "test_*.py"
 ```
+
+The native medical lane runs without API credentials, Docker, Harbor, or an upstream
+benchmark checkout:
+
+```bash
+python scripts/run_release_checks.py --skip-import-check --plan-matrix --report /tmp/sip-release-report.json
+```
+
+Its report records the expected 12 suite runs and 24 normalized records, SHA-256
+hashes for generated artifacts, aggregate cost fields, and failure-family counts.
+External suites retain their plan, hydration, execution, and source-artifact checks.
 
 Build a protocol summary from tracked sample runs:
 

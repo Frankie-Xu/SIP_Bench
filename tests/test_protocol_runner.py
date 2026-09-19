@@ -49,6 +49,12 @@ from sip_bench.protocol_runner import (
 
 
 class ProtocolRunnerTests(unittest.TestCase):
+    def test_result_only_config_declares_expected_artifacts(self) -> None:
+        config = load_protocol_suite_config(ROOT / "protocol" / "medical_synthetic_suite.json")
+        self.assertEqual(config["suite_kind"], "result-only")
+        self.assertEqual(config["expected_artifacts"]["runs_per_suite"], 12)
+        self.assertEqual(config["expected_artifacts"]["records"], 24)
+
     def test_run_medical_suite_writes_protocol_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
